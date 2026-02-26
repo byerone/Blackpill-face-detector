@@ -1,0 +1,65 @@
+import cv2
+import pygame
+import time
+
+# Initialize pygame mixer for audio
+pygame.mixer.init()
+
+# Load your song (replace with your file path)
+SONG_PATH = "your_song.mp3"
+pygame.mixer.music.load(SONG_PATH)
+pygame.mixer.music.set_volume(0.3) 
+
+# Load OpenCV's built-in face detector
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+
+# Start webcam
+cap = cv2.VideoCapture(0)
+
+playing = False
+no_face_since = None
+NO_FACE_TIMEOUT = 3  # seconds before song stops
+
+print("Starting face detection... Press 'q' to quit.")
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(80, 80))
+
+    face_detected = len(faces) > 0
+
+    # Draw boxes around detected faces
+    for (x, y, w, h) in faces:
+        cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+
+    # Play/stop logic
+    if face_detected:
+        no_face_since = None
+        if not playing:
+            pygame.mixer.music.play(-1)  # -1 = loop forever
+            playing = True
+            print("Face detected! Playing song.")
+    else:
+        if playing:
+            if no_face_since is None:
+                no_face_since = time.time()
+            elif time.time() - no_face_since > NO_FACE_TIMEOUT:
+                pygame.mixer.music.stop()
+                playing = False
+                print("No face. Stopping song.")
+
+    # Show the webcam feed
+    status = "Playing" if playing else "Stopped"
+    cv2.putText(frame, f"Status: {status}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    cv2.imshow('Face Detector', frame)
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
+pygame.mixer.quit()
