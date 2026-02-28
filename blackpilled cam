@@ -1,61 +1,89 @@
 import cv2
 import pygame
+import face_recognition
 import time
 
-# Initialize pygame mixer for audio
+MY_PHOTO_PATH = "my_face.jpg"
+MY_SONG = "your_song.mp3"
+OTHER_SONG = "other_song.mp3"
+NO_FACE_TIMEOUT = 1
+CHECK_EVERY_N_FRAMES = 10  # increase this if still laggy (try 15 or 20)
+
 pygame.mixer.init()
-
-# Load your song (replace with your file path)
-SONG_PATH = "your_song.mp3"
-pygame.mixer.music.load(SONG_PATH)
-pygame.mixer.music.set_volume(0.3) 
-
-# Load OpenCV's built-in face detector
+pygame.mixer.music.set_volume(0.5)
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-
-# Start webcam
 cap = cv2.VideoCapture(0)
 
-playing = False
-no_face_since = None
-NO_FACE_TIMEOUT = 3  # seconds before song stops
+my_image = face_recognition.load_image_file(MY_PHOTO_PATH)
+my_encoding = face_recognition.face_encodings(my_image)[0]
 
-print("Starting face detection... Press 'q' to quit.")
+current_song = None
+no_face_since = None
+frame_count = 0
+detected_who = None
+last_faces = []
+
+def play_song(path):
+    pygame.mixer.music.load(path)
+    pygame.mixer.music.play(-1)
+
+print("Running... Press 'q' to quit.")
 
 while True:
     ret, frame = cap.read()
     if not ret:
         break
 
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(80, 80))
+    frame_count += 1
 
-    face_detected = len(faces) > 0
+    small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+    rgb_small = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
 
-    # Draw boxes around detected faces
-    for (x, y, w, h) in faces:
-        cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+    if frame_count % CHECK_EVERY_N_FRAMES == 0:
+        face_locations = face_recognition.face_locations(rgb_small)
+        face_encodings = face_recognition.face_encodings(rgb_small, face_locations)
 
-    # Play/stop logic
-    if face_detected:
-        no_face_since = None
-        if not playing:
-            pygame.mixer.music.play(-1)  # -1 = loop forever
-            playing = True
-            print("Face detected! Playing song.")
-    else:
-        if playing:
+        detected_who = None
+        last_faces = []
+
+        for (top, right, bottom, left), encoding in zip(face_locations, face_encodings):
+            match = face_recognition.compare_faces([my_encoding], encoding, tolerance=0.5)
+
+            if match[0]:
+                detected_who = "me"
+                label = "Me!"
+                color = (0, 255, 0)
+            else:
+                if detected_who != "me":
+                    detected_who = "other"
+                label = "Stranger"
+                color = (0, 0, 255)
+
+            last_faces.append((top*2, right*2, bottom*2, left*2, label, color))
+
+    for (top, right, bottom, left, label, color) in last_faces:
+        cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
+        cv2.putText(frame, label, (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+
+    if detected_who is None:
+        if current_song is not None:
             if no_face_since is None:
                 no_face_since = time.time()
             elif time.time() - no_face_since > NO_FACE_TIMEOUT:
                 pygame.mixer.music.stop()
-                playing = False
-                print("No face. Stopping song.")
+                current_song = None
+                print("No face. Music stopped.")
+    else:
+        no_face_since = None
+        target_song = MY_SONG if detected_who == "me" else OTHER_SONG
+        if current_song != target_song:
+            play_song(target_song)
+            current_song = target_song
+            print(f"Playing: {target_song}")
 
-    # Show the webcam feed
-    status = "Playing" if playing else "Stopped"
-    cv2.putText(frame, f"Status: {status}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-    cv2.imshow('Face Detector', frame)
+    cv2.putText(frame, f"Playing: {current_song or 'nothing'}", (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    cv2.imshow('Face Song Detector', frame)
 
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break

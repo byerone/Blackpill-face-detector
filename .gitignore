@@ -1,0 +1,8 @@
+my_face.jpg
+my_song.mp3
+other_song.mp3
+
+__pycache__/
+*.pyc
+
+venv/ 
